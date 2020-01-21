@@ -1,0 +1,261 @@
+#include "PC_FileIO.c"
+#include "EV3Servo-lib-UW.c"
+
+//Constants
+const int DISTANCEHALF = 15;
+const int DISTANCEFULL = 100;
+
+//Function Prototypes
+float efficiency(float time, int shirts);
+void backFold();
+void configureSensors();
+void forwardBelt(int motorN1, int motorN2, int mPower, tSensors tPort);
+void leftFold();
+void reverseBelt(int motorN1, int motorN2, int mPower);
+void rightFold();
+void setMotorPower(int motorNum1, int motorNum2, int motorPower);
+void sortShirt(int color, int & warm, int & cold);
+
+//Main
+task main()
+{
+	configureSensors();
+
+	int numOfShirts = 0;
+	string sizeOfShirts = "";
+
+	int color = 0, warm = 0, cold = 0;
+	float eff = 0, totalTime = 0;
+
+	TFileHandle fin;
+	bool fileOkay = openReadPC(fin,"laundry.txt");
+
+	if (!fileOkay)
+	{
+		displayString(3, "ERROR!");
+		wait1Msec(10000);
+		eraseDisplay();
+	}
+	else
+	{
+		readIntPC(fin, numOfShirts);
+		readTextPC(fin, sizeOfShirts);
+
+		displayString (3, "Welcome to the LaundryBotL3000!");
+		wait1Msec(5000);
+		eraseDisplay();
+
+		displayString(3, "Num of shirts: %d", numOfShirts);
+		displayString(5, "Size of shirts: %s", sizeOfShirts);
+		displayString(7, "Press ENTER to fold.");
+		displayString(9, "Press UP to exit.");
+
+
+		while (!getButtonPress(buttonAny))
+		{}
+		if (getButtonPress(buttonEnter))
+		{
+			while (getButtonPress(buttonEnter))
+			{}
+			for (int count = 0; count < numOfShirts; count++)
+			{
+				while (SensorValue[S2] == 0)
+				{}
+
+				color = SensorValue[S2];
+				wait1Msec(2000);
+				time1[T1] = 0;
+
+				//back fold
+				backFold();
+
+				//right fold
+				rightFold();
+
+				//left fold
+				leftFold();
+
+				//reverse belt
+				reverseBelt(0, 3, -30);
+
+				//back fold
+				backFold();
+
+				//forward belt
+				forwardBelt(0, 3, 30, S4);
+
+				//sort t-shirt
+				sortShirt(color, warm, cold);
+				totalTime += (time1[T1]/1000);
+			}
+
+				//wait 1 sec
+				wait1Msec(1000);
+
+				//if color != Invalid
+				if (SensorValue[S2] != 0)
+				{
+					wait1Msec(5000);
+
+					if (SensorValue[S2] != 0)
+					{
+						eraseDisplay();
+						displayString(1, "SURPLUS OF T-SHIRTS!");
+						displayString(5, "EXIT & RESTART");
+						displayString(6, "TO FINISH FOLDING.");
+						wait1Msec(25000);
+					}
+				}
+
+				eff = efficiency(totalTime, numOfShirts);
+
+				eraseDisplay();
+
+				displayString(1, "Num of shirts: %d", numOfShirts);
+				displayString(3, "Size of shirts: %s", sizeOfShirts);
+				displayString(5, "The total elapsed time");
+				displayString(6, "is %.2f seconds.", totalTime);
+				displayString(8, "The efficiency of the robot");
+				displayString(9, "is %.2f sec per shirt.", eff);
+				displayString(11, "There are %d warm", warm);
+				displayString(12, "coloured shirt(s).");
+				displayString(14, "There are %d cold", cold);
+				displayString(15, "coloured shirt(s).");
+				wait1Msec(15000);
+
+				eraseDisplay();
+
+				displayString(3, "THANK YOU FOR USING");
+				displayString(4, "THE LAUNDRYBOT 3000");
+				displayString(5, "See you next time :) !");
+				wait1Msec(5000);
+
+		}
+
+		else if(getButtonPress(buttonUp))
+		{
+			while (getButtonPress(buttonUp))
+			{}
+		}
+	}
+}
+
+
+//Trivial Functions
+void setMotorPower(int motorNum1, int motorNum2, int motorPower)
+{
+	motor[motorNum1] = motor[motorNum2] = motorPower;
+}
+
+void configureSensors()
+{
+	SensorType[S1]= sensorI2CCustom9V;
+	SensorType[S2] = sensorEV3_Color;
+	wait1Msec(50);
+	SensorMode[S2] = modeEV3Color_Color;
+	wait1Msec(50);
+	SensorType[S3]= sensorI2CCustom9V;
+	SensorType[S4] = sensorEV3_Touch;
+}
+
+//non-trivial functions
+float efficiency (float time, int shirts)
+{
+	float eff = time / shirts;
+
+	return eff;
+}
+
+void sortShirt(int color, int & warm, int & cold)
+{
+	//warm colors
+	if (color == (int)colorRed || color == (int)colorYellow || color == (int)colorWhite)
+	{
+		wait1Msec(1000);
+		setServoPosition(S3,5,60);
+		wait1Msec(2000);
+
+		setServoPosition(S3,5,0);
+		wait1Msec(2000);
+		warm++;
+	}
+
+	//cold colors
+	else
+	{
+		wait1Msec(1000);
+		setServoPosition(S3,5,-60);
+		wait1Msec(2000);
+
+		setServoPosition(S3,5,0);
+		wait1Msec(2000);
+		cold++;
+	}
+}
+
+void reverseBelt(int motorN1, int motorN2, int mPower)
+{
+	nMotorEncoder[motorA] = 0;
+	setMotorPower(motorN1, motorN2, mPower);
+	while (nMotorEncoder[motorA] > (-1*DISTANCEHALF*180)/(PI*1.125))
+	{}
+
+	setMotorPower(motorN1, motorN2, 0);
+}
+
+void forwardBelt(int motorN1, int motorN2, int mPower, tSensors tPort)
+{
+	nMotorEncoder[motorA] = 0;
+	setMotorPower(motorN1, motorN2, mPower);
+	while (nMotorEncoder[motorA] < (DISTANCEFULL*180)/(PI*1.125) && SensorValue[tPort] == 0)
+	{}
+	setMotorPower(motorN1, motorN2, 0);
+}
+
+void backFold()
+{
+	setServoSpeed(S1,2,50, 0, 50);
+	time1[T3] = 0;
+	while (time1[T3] < 6000)
+	{}
+	setServoSpeed(S1,2,0);
+	wait1Msec(1000);
+	setServoSpeed(S1,2, -50, -50, 0);
+	time1[T3] = 0;
+	while (time1[T3] < 6000)
+	{}
+	setServoSpeed(S1,2,0);
+	wait1Msec(1000);
+}
+
+void rightFold()
+{
+	setServoSpeed(S3,4,-100, -100, 0);
+	time1[T3] = 0;
+	while (time1[T3] < 6000)
+	{}
+	setServoSpeed(S3,4,0);
+	wait1Msec(1000);
+	setServoSpeed(S3,4,100, 0, 100);
+	time1[T3] = 0;
+	while (time1[T3] < 6000)
+	{}
+	setServoSpeed(S3,4,0);
+	wait1Msec(1000);
+}
+
+void leftFold()
+{
+	setServoSpeed(S3,3,100, 0, 100);
+	time1[T3] = 0;
+	while (time1[T3] < 6000)
+	{}
+	setServoSpeed(S3,3,0);
+	wait1Msec(1000);
+	setServoSpeed(S3,3,-100, -100, 0);
+	time1[T3] = 0;
+	while (time1[T3] < 6000)
+	{}
+	setServoSpeed(S3,3,0);
+	wait1Msec(1000);
+}
